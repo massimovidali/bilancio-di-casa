@@ -1,26 +1,60 @@
 rules_version = '2';
 
-// Solo le email elencate qui possono leggere e scrivere i movimenti.
-// IMPORTANTE: modifica le email qui sotto direttamente nella Console Firebase
-// (Firestore Database → Regole) e premi "Pubblica".
-// Non serve committare le email vere su GitHub: questo file è solo un modello.
+// Ogni utente legge e scrive solo i propri dati (campo "uid").
+// L'AMMINISTRATORE legge i dati di tutti, ma scrive solo i propri.
+//
+// IMPORTANTE: metti l'email vera dell'amministratore direttamente nella Console Firebase
+// (Firestore Database → Regole) e premi "Pubblica". Questo file su GitHub è solo un modello.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isFamiglia() {
-      return request.auth != null
-        && request.auth.token.email in [
-          'tua.email@esempio.it',
-          'familiare@esempio.it'
-        ];
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.email in [
+        'amministratore@esempio.it'
+      ];
+    }
+
+    // Lettura: il proprietario o l'amministratore.
+    // Scrittura: solo il proprietario, e non può assegnare il dato a un altro utente.
+    function canRead() {
+      return signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+    }
+    function canCreate() {
+      return signedIn() && request.resource.data.uid == request.auth.uid;
+    }
+    function canUpdate() {
+      return signedIn() && resource.data.uid == request.auth.uid
+                        && request.resource.data.uid == request.auth.uid;
+    }
+    function canDelete() {
+      return signedIn() && resource.data.uid == request.auth.uid;
     }
 
     match /movimenti/{id} {
-      allow read, write: if isFamiglia();
+      allow read: if canRead();
+      allow create: if canCreate();
+      allow update: if canUpdate();
+      allow delete: if canDelete();
     }
 
     match /ricorrenti/{id} {
-      allow read, write: if isFamiglia();
+      allow read: if canRead();
+      allow create: if canCreate();
+      allow update: if canUpdate();
+      allow delete: if canDelete();
+    }
+
+    // Elenco utenti: ciascuno registra la propria email; l'amministratore li vede tutti.
+    // Il campo "nome" (facoltativo) si imposta dalla Console Firebase.
+    match /utenti/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if signedIn() && request.auth.uid == uid
+                   && request.resource.data.keys().hasOnly(['email', 'nome'])
+                   && request.resource.data.email == request.auth.token.email;
     }
   }
 }

@@ -156,6 +156,9 @@ section > h2 span { font-family: var(--f-body); font-weight: 500; font-size: 13p
 select.inp { appearance: auto; }
 .quick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
 .row .d { font-size: 12px; color: var(--muted); }
+.row.ro { cursor: default; }
+.row.ro:active { background: none; }
+select.inp:disabled { opacity: 1; color: var(--ink); }
 #cMsg { display: block; margin-bottom: 8px; }
 .export { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .exp { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; text-align: left; min-width: 0; }
@@ -228,7 +231,7 @@ select.inp { appearance: auto; }
 
 <div class="wrap" id="appView" hidden>
   <div class="top">
-    <div class="brand">BILANCIO DI CASA</div>
+    <div class="brand">BILANCIO DI CASA <span class="badge" id="roleBadge" hidden>Amministratore</span></div>
     <div class="status"><span id="status">Connessione…</span><br><button type="button" class="logout" id="logoutBtn">Esci</button></div>
   </div>
 
@@ -301,9 +304,13 @@ select.inp { appearance: auto; }
           <label for="fA">A</label>
           <input class="inp" id="fA" type="date">
         </div>
-        <div class="field full">
+        <div class="field">
           <label for="fVoce">Voce</label>
           <select class="inp" id="fVoce"></select>
+        </div>
+        <div class="field">
+          <label for="fUtente">Utente</label>
+          <select class="inp" id="fUtente"></select>
         </div>
       </div>
       <div class="quick" id="quick">
@@ -406,9 +413,9 @@ const monthName = key => MESI[+key.slice(5, 7) - 1].toLowerCase() + ' ' + key.sl
 function dayIn(key, g) { const [y, m] = key.split('-').map(Number); return `${key}-${pad(Math.min(g, new Date(y, m, 0).getDate()))}`; }
 function prevMonth(key) { let [y, m] = key.split('-').map(Number); m--; if (m < 1) { m = 12; y--; } return `${y}-${pad(m)}`; }
 /* Movimenti del mese: quelli inseriti più le voci fisse attive in quel mese */
-function fixedFor(key) {
-  return state.ric.filter(r => r.dal <= key && (!r.al || key <= r.al)).map(r => ({
-    id: 'r:' + r.id, ric: r, tipo: r.tipo, importo: r.importo, categoria: r.categoria, nota: r.nota,
+function fixedFor(key, list = state.ric) {
+  return list.filter(r => r.dal <= key && (!r.al || key <= r.al)).map(r => ({
+    id: 'r:' + r.id, ric: r, uid: r.uid, tipo: r.tipo, importo: r.importo, categoria: r.categoria, nota: r.nota,
     data: dayIn(key, r.giorno), mese: key, creatoIl: r.creatoIl }));
 }
 function itemsFor(key) { return state.items.filter(i => i.mese === key).concat(fixedFor(key)); }
@@ -423,12 +430,37 @@ function subscribe() {
   if (!state.db || subYear === state.y) return;
   if (unsub) unsub();
   subYear = state.y; state.loading = true; state.items = []; render();
-  unsub = state.db.collection('movimenti').where('anno', '==', state.y).limit(1000).onSnapshot(snap => {
+  unsub = state.db.collection('movimenti').where('uid', '==', state.uid).where('anno', '==', state.y).limit(1000).onSnapshot(snap => {
     state.items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     state.loading = false;
     setStatus(snap.metadata.hasPendingWrites ? 'Salvataggio…' : 'Sincronizzato');
     render();
-  }, err => { subYear = null; setStatus(err && err.code === 'permission-denied' ? 'Questo account non è autorizzato' : 'Connessione persa: ricarica la pagina', true); });
+  }, err => { subYear = null; dataError(err); });
+}
+function dataError(err) {
+  console.error(err);
+  setStatus(err && err.code === 'permission-denied' ? 'Accesso ai dati negato' : 'Connessione persa: ricarica la pagina', true);
+}
+
+/* ---------- Utenti e ruolo ---------- */
+state.uid = null; state.email = ''; state.isAdmin = false; state.users = {};
+function userLabel(uid) {
+  const u = state.users[uid];
+  if (u) return u.nome || u.email;
+  return uid === state.uid ? state.email : 'Utente sconosciuto';
+}
+function fillUtente() {
+  const sel = $('fUtente'); sel.innerHTML = '';
+  const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); };
+  if (state.isAdmin) {
+    opt('', 'Tutti gli utenti');
+    opt(state.uid, `${userLabel(state.uid)} (io)`);
+    Object.keys(state.users).filter(id => id !== state.uid)
+      .sort((x, y) => userLabel(x).localeCompare(userLabel(y))).forEach(id => opt(id, userLabel(id)));
+  } else opt(state.uid, userLabel(state.uid));
+  sel.disabled = !state.isAdmin;
+  sel.value = state.f.utente;
+  $('roleBadge').hidden = !state.isAdmin;
 }
 
 /* ---------- Firebase: accesso e database ---------- */
@@ -438,19 +470,30 @@ function showLogin(show) {
   $('appView').hidden = show;
   $('fabBar').hidden = show;
 }
-function startData(db) {
+function startData(db, user) {
   state.db = db; subYear = null; cKey = '';
+  state.uid = user.uid; state.email = user.email || '';
+  state.isAdmin = false; state.users = {}; state.f.utente = user.uid;
+  fillUtente();
   subscribe();
-  unsubRic = db.collection('ricorrenti').limit(500).onSnapshot(snap => {
+  unsubRic = db.collection('ricorrenti').where('uid', '==', state.uid).limit(500).onSnapshot(snap => {
     state.ric = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
-  }, err => setStatus(err && err.code === 'permission-denied' ? 'Questo account non è autorizzato' : 'Connessione persa: ricarica la pagina', true));
+  }, dataError);
   if (state.view === 'cerca') subscribeConsult();
+  // Registra l'utente nell'elenco (serve all'amministratore per i nomi)
+  db.collection('utenti').doc(user.uid).set({ email: state.email }, { merge: true }).catch(console.error);
+  // Solo l'amministratore può leggere l'elenco completo: se la lettura riesce, è amministratore
+  db.collection('utenti').get().then(snap => {
+    snap.docs.forEach(d => { state.users[d.id] = d.data(); });
+    state.isAdmin = true; fillUtente(); render();
+  }).catch(() => { state.isAdmin = false; fillUtente(); });
 }
 function stopData() {
-  [unsub, unsubRic, unsubC].forEach(u => u && u());
-  unsub = unsubRic = unsubC = null; subYear = null; cKey = '';
-  state.db = null; state.items = []; state.ric = []; state.cItems = [];
+  [unsub, unsubRic, unsubC, unsubCR].forEach(u => u && u());
+  unsub = unsubRic = unsubC = unsubCR = null; subYear = null; cKey = '';
+  state.db = null; state.items = []; state.ric = []; state.cItems = []; state.cRic = [];
+  state.uid = null; state.isAdmin = false; state.users = {};
 }
 
 (() => {
@@ -467,7 +510,7 @@ function stopData() {
   db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
   auth.onAuthStateChanged(user => {
-    if (user) { showLogin(false); setStatus('Connessione…'); startData(db); }
+    if (user) { showLogin(false); setStatus('Connessione…'); startData(db, user); }
     else { stopData(); showLogin(true); }
   });
 
@@ -536,9 +579,12 @@ function makeRow(i, showDate) {
   b.setAttribute('aria-label', `Modifica ${i.categoria} ${eur.format(i.importo)}`);
   const dot = document.createElement('span'); dot.className = 'dot ' + (isIn ? 'in' : 'out'); dot.textContent = isIn ? '+' : '−';
   const t = document.createElement('span'); t.className = 't';
+  const own = !i.uid || i.uid === state.uid;
   if (showDate) {
     const [yy, mm, dd] = i.data.split('-').map(Number);
-    const d = document.createElement('div'); d.className = 'd'; d.textContent = new Date(yy, mm - 1, dd).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+    const d = document.createElement('div'); d.className = 'd';
+    d.textContent = new Date(yy, mm - 1, dd).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+    if (state.isAdmin) d.textContent += ' · ' + (own ? 'io' : userLabel(i.uid));
     t.append(d);
   }
   const c = document.createElement('div'); c.className = 'c'; c.textContent = i.categoria || 'Altro';
@@ -547,7 +593,9 @@ function makeRow(i, showDate) {
   if (i.nota) { const n = document.createElement('div'); n.className = 'n'; n.textContent = i.nota; t.append(n); }
   const a = document.createElement('span'); a.className = 'a num' + (isIn ? ' in' : ''); a.textContent = (isIn ? '+' : '−') + eur.format(i.importo);
   b.append(dot, t, a);
-  b.addEventListener('click', () => openSheet(i));
+  // I movimenti degli altri utenti sono in sola lettura, anche per l'amministratore
+  if (own) b.addEventListener('click', () => openSheet(i));
+  else { b.classList.add('ro'); b.setAttribute('aria-disabled', 'true'); b.setAttribute('aria-label', `${i.categoria} ${eur.format(i.importo)} di ${userLabel(i.uid)}, sola lettura`); }
   return b;
 }
 
@@ -628,8 +676,9 @@ function renderLedger(month) {
 
 /* ---------- Consulta: ricerca e filtri ---------- */
 state.view = 'mese';
-state.f = { q: '', da: `${now.getFullYear()}-01-01`, a: todayStr(), voce: '' };
-state.cItems = []; state.cLoading = false; state.cTrunc = false;
+const defaultFilters = () => ({ q: '', da: `${now.getFullYear()}-01-01`, a: todayStr(), voce: '', utente: state.uid });
+state.f = defaultFilters();
+state.cItems = []; state.cRic = []; state.cLoading = false; state.cTrunc = false;
 const SHOW_MAX = 300;
 
 function fillVoce() {
@@ -643,25 +692,35 @@ function fillVoce() {
   });
 }
 fillVoce();
-function syncFilterInputs() { $('fQ').value = state.f.q; $('fDa').value = state.f.da; $('fA').value = state.f.a; $('fVoce').value = state.f.voce; }
+function syncFilterInputs() { $('fQ').value = state.f.q; $('fDa').value = state.f.da; $('fA').value = state.f.a; $('fVoce').value = state.f.voce; $('fUtente').value = state.f.utente ?? ''; }
 syncFilterInputs();
 
-/* Carica i movimenti degli anni coperti dall'intervallo; il resto dei filtri si applica sul telefono */
-let unsubC = null, cKey = '';
+/* Carica i movimenti degli anni coperti dall'intervallo, dell'utente scelto (tutti solo per l'amministratore);
+   gli altri filtri si applicano sul telefono */
+let unsubC = null, unsubCR = null, cKey = '';
 function subscribeConsult() {
   const { da, a } = state.f;
+  if (!state.isAdmin) state.f.utente = state.uid;
+  const utente = state.f.utente;
   if (!state.db || !da || !a || da > a) { renderConsult(); return; }
   const y1 = +da.slice(0, 4), y2 = +a.slice(0, 4);
   const years = []; for (let y = y1; y <= y2 && years.length < 30; y++) years.push(y);
-  const k = years.join(',');
+  const k = years.join(',') + '|' + utente;
   if (k === cKey) { renderConsult(); return; }
-  if (unsubC) unsubC();
-  cKey = k; state.cLoading = true; renderConsult();
-  unsubC = state.db.collection('movimenti').where('anno', 'in', years).limit(1000).onSnapshot(snap => {
+  if (unsubC) unsubC(); if (unsubCR) unsubCR();
+  cKey = k; state.cLoading = true; state.cItems = []; state.cRic = []; renderConsult();
+  const onErr = err => { console.error(err); cKey = ''; state.cLoading = false; renderConsult(); $('cMsg').textContent = err && err.code === 'permission-denied' ? 'Non hai accesso ai dati di questo utente.' : 'Connessione persa: ricarica la pagina.'; };
+  let mov = state.db.collection('movimenti'), ric = state.db.collection('ricorrenti');
+  if (utente) { mov = mov.where('uid', '==', utente); ric = ric.where('uid', '==', utente); }
+  unsubC = mov.where('anno', 'in', years).limit(1000).onSnapshot(snap => {
     state.cItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     state.cTrunc = snap.size >= 1000; state.cLoading = false;
     renderConsult();
-  }, () => { cKey = ''; state.cLoading = false; $('cMsg').textContent = 'Connessione persa: ricarica la pagina.'; });
+  }, onErr);
+  unsubCR = ric.limit(500).onSnapshot(snap => {
+    state.cRic = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderConsult();
+  }, onErr);
 }
 
 function consultResults() {
@@ -669,7 +728,7 @@ function consultResults() {
   if (!da || !a || da > a) return [];
   let res = state.cItems.filter(i => i.data >= da && i.data <= a);
   for (let k = da.slice(0, 7), n = 0; k <= a.slice(0, 7) && n < 600; k = nextMonth(k), n++)
-    res = res.concat(fixedFor(k).filter(i => i.data >= da && i.data <= a));
+    res = res.concat(fixedFor(k, state.cRic).filter(i => i.data >= da && i.data <= a));
   if (voce === 'uscita' || voce === 'entrata') res = res.filter(i => i.tipo === voce);
   else if (voce) { const [t, c] = voce.split('|'); res = res.filter(i => i.tipo === t && i.categoria === c); }
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -714,8 +773,9 @@ document.querySelectorAll('#quick .chip').forEach(c => c.addEventListener('click
   [state.f.da, state.f.a] = quickRange(c.dataset.r); syncFilterInputs(); subscribeConsult();
 }));
 $('fReset').addEventListener('click', () => {
-  state.f = { q: '', da: `${now.getFullYear()}-01-01`, a: todayStr(), voce: '' }; syncFilterInputs(); subscribeConsult();
+  state.f = defaultFilters(); syncFilterInputs(); subscribeConsult();
 });
+$('fUtente').addEventListener('change', () => { if (state.isAdmin) { state.f.utente = $('fUtente').value; subscribeConsult(); } });
 let qTimer = null;
 $('fQ').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.f.q = $('fQ').value; renderConsult(); }, 200); });
 $('fVoce').addEventListener('change', () => { state.f.voce = $('fVoce').value; renderConsult(); });
@@ -772,17 +832,20 @@ function makeSheet(X, rows, { money = [], date = [], pct = [], widths = [] }) {
 }
 const total = (arr, t) => arr.filter(i => i.tipo === t).reduce((a, i) => a + (+i.importo || 0), 0);
 
-function movimentiSheet(X, items) {
+/* withUser: aggiunge la colonna Utente (ricerche dell'amministratore) */
+function movimentiSheet(X, items, withUser) {
   const sorted = [...items].sort((a, b) => a.data.localeCompare(b.data) || (a.creatoIl || '').localeCompare(b.creatoIl || ''));
-  const rows = [['Data', 'Tipo', 'Categoria', 'Descrizione', 'Fissa', 'Entrata', 'Uscita']];
+  const u = withUser ? 1 : 0;
+  const rows = [['Data', ...(u ? ['Utente'] : []), 'Tipo', 'Categoria', 'Descrizione', 'Fissa', 'Entrata', 'Uscita']];
   sorted.forEach(i => {
     const isIn = i.tipo === 'entrata';
-    rows.push([serial(i.data), isIn ? 'Entrata' : 'Uscita', i.categoria || 'Altro', i.nota || '', i.ric ? 'Sì' : '',
+    rows.push([serial(i.data), ...(u ? [userLabel(i.uid)] : []), isIn ? 'Entrata' : 'Uscita', i.categoria || 'Altro', i.nota || '', i.ric ? 'Sì' : '',
       isIn ? +i.importo : null, isIn ? null : +i.importo]);
   });
   const tin = total(items, 'entrata'), tout = total(items, 'uscita');
-  rows.push([], ['Totale', '', '', '', '', tin, tout], ['Saldo', '', '', '', '', tin - tout]);
-  return makeSheet(X, rows, { money: [5, 6], date: [0], widths: [12, 10, 18, 32, 7, 14, 14] });
+  const pad5 = Array(5 + u).fill('');
+  rows.push([], ['Totale', ...pad5.slice(1), tin, tout], ['Saldo', ...pad5.slice(1), tin - tout]);
+  return makeSheet(X, rows, { money: [5 + u, 6 + u], date: [0], widths: [12, ...(u ? [22] : []), 10, 18, 32, 7, 14, 14] });
 }
 function categorieSheet(X, items) {
   const by = {};
@@ -819,7 +882,7 @@ async function exportXlsx(scope) {
     const X = await loadXlsx();
     const wb = X.utils.book_new();
     if (scope === 'anno') X.utils.book_append_sheet(wb, riepilogoSheet(X), 'Riepilogo');
-    X.utils.book_append_sheet(wb, movimentiSheet(X, items), 'Movimenti');
+    X.utils.book_append_sheet(wb, movimentiSheet(X, items, scope === 'ricerca' && state.isAdmin), 'Movimenti');
     X.utils.book_append_sheet(wb, categorieSheet(X, items), 'Uscite per categoria');
     const buf = X.write(wb, { bookType: 'xlsx', type: 'array' });
     const filename = scope === 'ricerca' ? `Ricerca dal ${fmtDate(state.f.da).replace(/\//g, '-')} al ${fmtDate(state.f.a).replace(/\//g, '-')}.xlsx`
@@ -936,7 +999,7 @@ $('form').addEventListener('submit', async e => {
   if ($('ripeti').checked) {
     const fine = $('fine').value;
     if (fine && fine < data.slice(0, 7)) { $('err').textContent = "L'ultimo mese non può essere prima del primo addebito."; return; }
-    const ric = { tipo: state.tipo, importo, categoria: state.cat, nota: $('nota').value.trim(),
+    const ric = { uid: state.uid, tipo: state.tipo, importo, categoria: state.cat, nota: $('nota').value.trim(),
       giorno: +data.slice(8, 10), dal: data.slice(0, 7), al: fine || '', aggiornatoIl: nowIso };
     btn.disabled = true; btn.textContent = 'Salvataggio…';
     try {
@@ -948,7 +1011,7 @@ $('form').addEventListener('submit', async e => {
     finally { btn.disabled = false; btn.textContent = 'Salva'; }
     return;
   }
-  const body = { tipo: state.tipo, importo, categoria: state.cat, nota: $('nota').value.trim(), data,
+  const body = { uid: state.uid, tipo: state.tipo, importo, categoria: state.cat, nota: $('nota').value.trim(), data,
     anno: +data.slice(0, 4), mese: data.slice(0, 7), aggiornatoIl: nowIso };
   btn.disabled = true; btn.textContent = 'Salvataggio…';
   try {

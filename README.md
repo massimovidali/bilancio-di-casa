@@ -31,7 +31,7 @@ Tutto rientra nei piani gratuiti: Firebase "Spark" (50.000 letture e 20.000 scri
 ### Database
 7. **Build → Firestore Database → Crea database**.
 8. Posizione: **eur3 (Europe)** → modalità **produzione** → **Crea**.
-9. Scheda **Regole**: incolla il contenuto di `firestore.rules`, **sostituisci le email di esempio con quelle vere** degli account del punto 5, poi **Pubblica**.
+9. Scheda **Regole**: incolla il contenuto di `firestore.rules`, **sostituisci `amministratore@esempio.it` con l'email vera dell'amministratore**, poi **Pubblica**.
 
 ### Collega l'app
 10. In alto a sinistra **⚙ → Impostazioni progetto** → in fondo, **Le tue app** → icona **Web `</>`**.
@@ -77,7 +77,18 @@ Per pubblicare una modifica: `git add -A`, `git commit -m "descrizione"`, `git p
 
 L'app si apre a tutto schermo con la sua icona. Ricorda l'accesso e funziona anche senza rete: i movimenti inseriti offline si sincronizzano quando torna la connessione.
 
+## Utenti e amministratore
+
+- Ogni utente vede, riepiloga e cerca **solo i propri dati**.
+- L'**amministratore** inserisce solo nei propri dati, ma in **Consulta** può scegliere *Tutti gli utenti* o un utente specifico. I movimenti degli altri li vede in sola lettura, con il nome dell'utente accanto alla data. L'export Excel della ricerca ha una colonna *Utente* in più.
+- Chi è amministratore lo decide solo la regola `isAdmin()` in Firestore, non l'app: per cambiarlo modifica l'email nelle Regole e premi Pubblica. Più amministratori: aggiungi altre email alla lista.
+- Nomi leggibili: ogni utente compare nella raccolta `utenti` dopo il primo accesso, con la sua email. Per mostrare un nome al posto dell'email, in Firestore apri `utenti/<id>` e aggiungi il campo `nome` (stringa), ad esempio "Massimo".
+- Un nuovo familiare: crealo in **Authentication → Utenti**. Non serve toccare le regole.
+
 ## Come sono salvati i dati
 
-- `movimenti`: un documento per ogni entrata o uscita (`tipo`, `importo`, `categoria`, `nota`, `data`, `anno`, `mese`).
-- `ricorrenti`: le voci fisse mensili (`giorno`, `dal`, `al` vuoto se senza scadenza). Non vengono copiate in ogni mese: l'app le calcola al volo.
+- `movimenti`: un documento per ogni entrata o uscita (`uid` del proprietario, `tipo`, `importo`, `categoria`, `nota`, `data`, `anno`, `mese`).
+- `ricorrenti`: le voci fisse mensili (`uid`, `giorno`, `dal`, `al` vuoto se senza scadenza). Non vengono copiate in ogni mese: l'app le calcola al volo.
+- `utenti`: email (e nome facoltativo) di chi ha effettuato l'accesso.
+
+Se Firestore chiede di creare un indice (messaggio nella console del browser con un link), apri il link e conferma: si crea in un paio di minuti.
