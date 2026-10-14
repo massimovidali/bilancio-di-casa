@@ -1,0 +1,26 @@
+rules_version = '2';
+
+// Solo le email elencate qui possono leggere e scrivere i movimenti.
+// IMPORTANTE: modifica le email qui sotto direttamente nella Console Firebase
+// (Firestore Database → Regole) e premi "Pubblica".
+// Non serve committare le email vere su GitHub: questo file è solo un modello.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isFamiglia() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'tua.email@esempio.it',
+          'familiare@esempio.it'
+        ];
+    }
+
+    match /movimenti/{id} {
+      allow read, write: if isFamiglia();
+    }
+
+    match /ricorrenti/{id} {
+      allow read, write: if isFamiglia();
+    }
+  }
+}
