@@ -85,6 +85,9 @@ button { font: inherit; color: inherit; }
 .nav { display: flex; gap: 6px; }
 .icon-btn { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); display: grid; place-items: center; cursor: pointer; font-size: 20px; line-height: 1; }
 .icon-btn:active { transform: scale(.96); }
+.nav { align-items: center; }
+.today-btn { height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 14px; cursor: pointer; }
+.today-btn:active { transform: scale(.96); }
 
 /* Saldo */
 .balance { background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
@@ -251,6 +254,7 @@ select.inp:disabled { opacity: 1; color: var(--ink); }
   <div class="month">
     <h1 id="monthTitle">Ottobre<small>2026</small></h1>
     <div class="nav">
+      <button class="today-btn" id="todayBtn" hidden>Oggi</button>
       <button class="icon-btn" id="prev" aria-label="Mese precedente">‹</button>
       <button class="icon-btn" id="next" aria-label="Mese successivo">›</button>
     </div>
@@ -548,6 +552,8 @@ function render() {
   $('monthTitle').innerHTML = '';
   $('monthTitle').append(MESI[state.m]);
   const sm = document.createElement('small'); sm.textContent = state.y; $('monthTitle').append(sm);
+  const oggi = new Date();
+  $('todayBtn').hidden = state.y === oggi.getFullYear() && state.m === oggi.getMonth();
   $('addBtn').disabled = !state.db;
 
   const month = itemsFor(key);
@@ -933,6 +939,12 @@ function go(delta) {
   state.m = m; state.y = y;
   if (subYear !== y) subscribe(); else render();
 }
+/* Torna al mese corrente (il pulsante compare solo quando si sta guardando un altro mese) */
+$('todayBtn').addEventListener('click', () => {
+  const d = new Date();
+  state.m = d.getMonth();
+  if (state.y !== d.getFullYear()) { state.y = d.getFullYear(); subscribe(); } else render();
+});
 $('prev').addEventListener('click', () => go(-1));
 $('next').addEventListener('click', () => go(1));
 $('year').addEventListener('click', e => { const g = e.target.closest('[data-m]'); if (g) { state.m = +g.dataset.m; render(); } });
