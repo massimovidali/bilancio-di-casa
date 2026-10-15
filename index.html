@@ -393,9 +393,9 @@ select.inp:disabled { opacity: 1; color: var(--ink); }
       <input class="inp" id="data" type="date">
     </div>
     <div class="field" id="fineField" hidden>
-      <label for="fine">Ultimo mese (facoltativo)</label>
-      <input class="inp" id="fine" type="month">
-      <span class="hint">Lascia vuoto se si ripete senza scadenza.</span>
+      <label for="fine">Ultimo addebito (facoltativo)</label>
+      <input class="inp" id="fine" type="date">
+      <span class="hint">Conta il mese: la voce compare fino a quel mese compreso. Lascia vuoto se si ripete senza scadenza.</span>
     </div>
     <div class="err" id="err" role="alert"></div>
     <div class="actions">
@@ -1004,7 +1004,7 @@ function openSheet(item) {
   $('ripeti').disabled = !!item;
   $('ripetiBox').classList.toggle('locked', !!item);
   $('ripetiBox').hidden = !!item && !r;
-  $('fine').value = r ? (r.al || '') : '';
+  $('fine').value = r && r.al ? dayIn(r.al, r.giorno) : '';
   $('data').value = r ? dayIn(r.dal, r.giorno) : item ? item.data : (todayStr().startsWith(key) ? todayStr() : key + '-01');
   $('scrim').hidden = false;
   if (!item) setTimeout(() => $('importo').focus(), 60);
@@ -1041,8 +1041,9 @@ $('form').addEventListener('submit', async e => {
   const nowIso = new Date().toISOString();
   const btn = $('saveBtn');
   if ($('ripeti').checked) {
-    const fine = $('fine').value;
-    if (fine && fine < data.slice(0, 7)) { $('err').textContent = "L'ultimo mese non può essere prima del primo addebito."; return; }
+    // Si salva solo il mese dell'ultimo addebito (AAAA-MM): il giorno è quello del primo addebito
+    const fine = $('fine').value.slice(0, 7);
+    if (fine && fine < data.slice(0, 7)) { $('err').textContent = "L'ultimo addebito non può essere prima del primo."; return; }
     const ric = { uid: state.uid, tipo: state.tipo, importo, categoria: state.cat, nota: $('nota').value.trim(),
       giorno: +data.slice(8, 10), dal: data.slice(0, 7), al: fine || '', aggiornatoIl: nowIso };
     btn.disabled = true; btn.textContent = 'Salvataggio…';
