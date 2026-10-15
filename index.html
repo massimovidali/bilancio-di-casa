@@ -412,9 +412,16 @@ select.inp:disabled { opacity: 1; color: var(--ink); }
 <script src="firebase-config.js"></script>
 <script>
 const CAT = {
-  uscita: ['Spesa alimentare', 'Casa e affitto', 'Bollette', 'Trasporti', 'Salute', 'Figli e scuola', 'Svago', 'Abbigliamento', 'Abbonamenti', 'Viaggi', 'Pranzi / Cene', 'Regali', 'Altro'],
+  uscita: ['Spesa alimentare', 'Casa e affitto', 'Bollette', 'Trasporti', 'Salute/Bellezza', 'Figli e scuola', 'Svago', 'Abbigliamento', 'Abbonamenti', 'Viaggi', 'Pranzi / Cene', 'Regali', 'Altro'],
   entrata: ['Stipendio', 'Tredicesima', 'Rimborsi', 'Regali', 'Altro']
 };
+/* Categorie rinominate: i movimenti già salvati con il vecchio nome compaiono con quello nuovo */
+const RINOMINATE = { 'Salute': 'Salute/Bellezza' };
+function fromDoc(d) {
+  const x = { id: d.id, ...d.data() };
+  if (x.tipo === 'uscita' && RINOMINATE[x.categoria]) x.categoria = RINOMINATE[x.categoria];
+  return x;
+}
 const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
 const eur = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' });
 const dayFmt = new Intl.DateTimeFormat('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -448,7 +455,7 @@ function subscribe() {
   if (unsub) unsub();
   subYear = state.y; state.loading = true; state.items = []; render();
   unsub = state.db.collection('movimenti').where('uid', '==', state.uid).where('anno', '==', state.y).limit(1000).onSnapshot(snap => {
-    state.items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.items = snap.docs.map(fromDoc);
     state.loading = false;
     setStatus(snap.metadata.hasPendingWrites ? 'Salvataggio…' : 'Sincronizzato');
     render();
@@ -494,7 +501,7 @@ function startData(db, user) {
   fillUtente();
   subscribe();
   unsubRic = db.collection('ricorrenti').where('uid', '==', state.uid).limit(500).onSnapshot(snap => {
-    state.ric = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.ric = snap.docs.map(fromDoc);
     render();
   }, dataError);
   if (state.view === 'cerca') subscribeConsult();
@@ -736,12 +743,12 @@ function subscribeConsult() {
   let mov = state.db.collection('movimenti'), ric = state.db.collection('ricorrenti');
   if (utente) { mov = mov.where('uid', '==', utente); ric = ric.where('uid', '==', utente); }
   unsubC = mov.where('anno', 'in', years).limit(1000).onSnapshot(snap => {
-    state.cItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.cItems = snap.docs.map(fromDoc);
     state.cTrunc = snap.size >= 1000; state.cLoading = false;
     renderConsult();
   }, onErr);
   unsubCR = ric.limit(500).onSnapshot(snap => {
-    state.cRic = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.cRic = snap.docs.map(fromDoc);
     renderConsult();
   }, onErr);
 }
