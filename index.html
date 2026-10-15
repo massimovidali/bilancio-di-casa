@@ -91,6 +91,13 @@ button { font: inherit; color: inherit; }
 .label { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .saldo { font-family: var(--f-display); font-weight: 700; font-size: 40px; line-height: 1; }
 .saldo.pos { color: var(--in); } .saldo.neg { color: var(--out); }
+.label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.eye { width: 36px; height: 36px; margin: -8px -8px -8px 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.eye:hover { background: var(--bg); color: var(--ink); }
+.eye svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.eye .eye-closed { display: none; }
+.eye[aria-pressed="true"] .eye-open { display: none; }
+.eye[aria-pressed="true"] .eye-closed { display: block; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .pill { border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pill.in { background: var(--in-soft); } .pill.out { background: var(--out-soft); }
@@ -251,7 +258,13 @@ select.inp:disabled { opacity: 1; color: var(--ink); }
 
   <div class="balance">
     <div>
-      <div class="label">Saldo del mese</div>
+      <div class="label-row">
+        <div class="label">Saldo del mese</div>
+        <button type="button" class="eye" id="eyeBtn" aria-pressed="false" aria-label="Nascondi importi">
+          <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-11-7-11-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
       <div class="saldo num" id="saldo">0,00 €</div>
     </div>
     <div class="pair">
@@ -540,16 +553,20 @@ function render() {
   const month = itemsFor(key);
   const sum = (arr, t) => arr.filter(i => i.tipo === t).reduce((a, i) => a + (+i.importo || 0), 0);
   const tin = sum(month, 'entrata'), tout = sum(month, 'uscita'), bal = tin - tout;
-  $('tIn').textContent = eur.format(tin);
-  $('tOut').textContent = eur.format(tout);
+  // Con l'occhio chiuso gli importi del riquadro diventano puntini (anche il colore del saldo resta neutro)
+  const H = state.hideTotals, money = v => H ? '•••• €' : eur.format(v);
+  $('eyeBtn').setAttribute('aria-pressed', H);
+  $('eyeBtn').setAttribute('aria-label', H ? 'Mostra importi' : 'Nascondi importi');
+  $('tIn').textContent = money(tin);
+  $('tOut').textContent = money(tout);
   const s = $('saldo');
-  s.textContent = (bal > 0 ? '+' : '') + eur.format(bal);
-  s.className = 'saldo num ' + (bal > 0 ? 'pos' : bal < 0 ? 'neg' : '');
+  s.textContent = H ? '•••• €' : (bal > 0 ? '+' : '') + eur.format(bal);
+  s.className = 'saldo num ' + (H ? '' : bal > 0 ? 'pos' : bal < 0 ? 'neg' : '');
 
   const fixedOut = sum(month.filter(i => i.ric), 'uscita');
   $('fixedLine').innerHTML = '';
   if (fixedOut > 0) {
-    const b = document.createElement('b'); b.className = 'num'; b.textContent = eur.format(fixedOut);
+    const b = document.createElement('b'); b.className = 'num'; b.textContent = money(fixedOut);
     $('fixedLine').append('Di cui spese fisse: ', b);
   }
 
@@ -559,7 +576,7 @@ function render() {
   $('ytd').innerHTML = '';
   if (upTo.length) {
     $('ytd').append(`Da gennaio a ${MESI[state.m].toLowerCase()}: `);
-    const b = document.createElement('b'); b.className = 'num'; b.textContent = (ytd > 0 ? '+' : '') + eur.format(ytd);
+    const b = document.createElement('b'); b.className = 'num'; b.textContent = H ? '•••• €' : (ytd > 0 ? '+' : '') + eur.format(ytd);
     $('ytd').append(b, ytd >= 0 ? ' messi da parte' : ' oltre le entrate');
   }
 
@@ -900,6 +917,14 @@ async function exportXlsx(scope) {
 $('expMonth').addEventListener('click', () => exportXlsx('mese'));
 $('expYear').addEventListener('click', () => exportXlsx('anno'));
 $('expRes').addEventListener('click', () => exportXlsx('ricerca'));
+
+/* ---------- Occhio: mostra/nascondi i totali del mese (scelta ricordata su questo dispositivo) ---------- */
+try { state.hideTotals = localStorage.getItem('bilancio.nascondiTotali') === '1'; } catch (e) { state.hideTotals = false; }
+$('eyeBtn').addEventListener('click', () => {
+  state.hideTotals = !state.hideTotals;
+  try { localStorage.setItem('bilancio.nascondiTotali', state.hideTotals ? '1' : '0'); } catch (e) {}
+  render();
+});
 
 /* ---------- Navigazione ---------- */
 function go(delta) {
